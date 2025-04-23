@@ -20,3 +20,10 @@ rad.json
 *.flf
 #Test results file
 TestResults.xml
+person-bicycle-car-detection.mp4
+requirements.txt
+note.txt
+logs
+.idea
+__pycache__/
+venv_py39

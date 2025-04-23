@@ -1,0 +1,67 @@
+# Smart Object Tracking System Configuration
+
+# System information
+system:
+  name: "Smart Object Tracking System"
+  version: "1.0.0"
+  description: "Real-time object detection and tracking system for edge devices"
+
+# Model settings
+models:
+  directory: "models"
+  online_model: "yolov5s.pt"  # Model to use in online mode
+  offline_model: "yolov5s-fp16.onnx"  # Model to use in offline mode
+
+# Input settings
+input:
+  default_source: 0  # Default camera (0 = primary webcam)
+  max_resolution: [1280, 720]  # Maximum input resolution
+  fps_target: 30  # Target FPS
+  fallback_video: person-bicycle-car-detection.mp4
+
+
+# Detection settings
+detection:
+  confidence: 0.25  # Detection confidence threshold
+  iou_threshold: 0.45  # IoU threshold for NMS
+  frequency: 5  # Run detection every N frames
+  classes: null  # Filter specific classes (null = all classes)
+
+# Tracking settings
+tracking:
+  tracker: "deep_sort"  # Tracker type: "deep_sort" or "byte_track"
+  max_age: 30  # Maximum frames a track can be inactive before being removed
+  min_hits: 3  # Minimum detections before track is displayed
+  iou_threshold: 0.3  # IoU threshold for association
+  max_feature_distance: 0.5  # Maximum feature distance for DeepSORT
+  persistence: 30  # How long to keep tracks without detection
+  feature_model: null  # Path to feature extraction model (null = use default features)
+
+  # ByteTrack specific settings
+  high_threshold: 0.6  # High confidence threshold for first association
+  low_threshold: 0.1  # Low confidence threshold for second association
+
+# Offline mode settings
+offline:
+  queue_directory: "queue"  # Directory for offline queue
+  max_queue_size: 1000  # Maximum items in memory queue
+  sync_interval: 3600  # Sync interval in seconds when going online (0 = manual sync)
+
+# Update settings
+updates:
+  enabled: true  # Enable OTA updates
+  check_url: "https://api.example.com/model-updates/check"  # URL to check for updates
+  download_url: "https://storage.example.com/models/"  # Base URL for model downloads
+  interval: 86400  # Check interval in seconds (default: 1 day)
+
+# Logging settings
+logging:
+  level: "INFO"  # Logging level (DEBUG, INFO, WARNING, ERROR)
+  directory: "logs"  # Log directory
+  console_output: true  # Display logs on console
+  file_output: true  # Save logs to file
+  max_log_size: 10485760  # Maximum log file size (10 MB)
+  max_log_files: 10  # Maximum number of log files to keep
+
+# Device settings
+device: "cpu"  # Inference device: "cpu" or "cuda"
