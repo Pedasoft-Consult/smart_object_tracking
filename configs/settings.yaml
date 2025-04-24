@@ -22,14 +22,14 @@ input:
 
 # Detection settings
 detection:
-  confidence: 0.25  # Detection confidence threshold
+  confidence: 0.15  # Detection confidence threshold (increased from 0.01)
   iou_threshold: 0.45  # IoU threshold for NMS
-  frequency: 5  # Run detection every N frames
+  frequency: 1  # Run detection every frame (changed from 5)
   classes: null  # Filter specific classes (null = all classes)
 
 # Tracking settings
 tracking:
-  tracker: "deep_sort"  # Tracker type: "deep_sort" or "byte_track"
+  tracker: "byte_track"  # Tracker type: "deep_sort" or "byte_track" tracker: "byte_track"
   max_age: 30  # Maximum frames a track can be inactive before being removed
   min_hits: 3  # Minimum detections before track is displayed
   iou_threshold: 0.3  # IoU threshold for association
@@ -62,6 +62,13 @@ logging:
   file_output: true  # Save logs to file
   max_log_size: 10485760  # Maximum log file size (10 MB)
   max_log_files: 10  # Maximum number of log files to keep
+
+# Display settings
+display:
+  show_fps: true  # Show FPS counter
+  show_confidence: true  # Show confidence scores
+  show_labels: true  # Show class labels
+  show_tracks: true  # Show tracking IDs
 
 # Device settings
 device: "cpu"  # Inference device: "cpu" or "cuda"

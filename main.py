@@ -14,13 +14,14 @@ import logging
 import time
 from pathlib import Path
 import cv2
+from tracker.tracker import ObjectTracker
 
 # Modified path handling to prevent import conflicts
 # Add project root to path but make it lower priority than system paths
-project_root = str(Path(__file__).parent)
-if project_root in sys.path:
-    sys.path.remove(project_root)
-sys.path.append(project_root)
+project_root = str(Path(__file__).resolve().parent)
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
 
 # Load configuration first before importing modules that might need it
 def load_config():
@@ -37,6 +38,7 @@ def load_config():
     except Exception as e:
         print(f"Error loading configuration: {e}")
         return {}
+
 
 # Load configuration early before other imports
 config = load_config()
@@ -142,6 +144,13 @@ def start_tracking(config, logger, args):
         logger: Logger instance
         args: Command-line arguments
     """
+    # Update config with command-line arguments
+    if args.conf_thres:
+        if 'detection' not in config:
+            config['detection'] = {}
+        config['detection']['confidence'] = args.conf_thres
+        logger.info(f"Setting detection confidence threshold to {args.conf_thres}")
+
     # Check network connectivity
     online_mode = check_connectivity()
     logger.info(f"Starting in {'online' if online_mode else 'offline'} mode")
@@ -180,6 +189,7 @@ def start_tracking(config, logger, args):
 
         # Initialize tracker
         tracker = ObjectTracker(tracker_type, config)
+        logger.info(f"Initialized {tracker_type} tracker")
 
         # Start detection and tracking loop
         logger.info(f"Starting detection and tracking from source: {source}")
@@ -218,6 +228,7 @@ def main():
     parser.add_argument("--output-dir", default="output", help="Output directory")
     parser.add_argument("--tracker", choices=["deep_sort", "byte_track"], help="Tracker type")
     parser.add_argument("--config", help="Path to config file")
+    parser.add_argument('--conf-thres', type=float, default=0.15, help='confidence threshold')
 
     args = parser.parse_args()
 

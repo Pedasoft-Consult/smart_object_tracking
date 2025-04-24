@@ -1,0 +1,38 @@
+graph TD
+    subgraph "Core System"
+        A[main.py] --> B[detect_and_track.py]
+        A --> C[Connectivity Monitor]
+        A --> D[OTA Updater]
+        
+        B --> E[Object Tracker]
+        B --> F[Offline Queue]
+        
+        E --> G[DeepSORT Tracker]
+        E --> H[ByteTrack Tracker]
+    end
+    
+    subgraph "Enhanced Components"
+        I[Enhanced Offline Queue] --> F
+        J[Model Registry] --> B
+        K[Flask API] --> A
+    end
+    
+    subgraph "Client Applications"
+        L[API Client] --> K
+        M[Web Dashboard] --> K
+        N[Mobile App] --> K
+    end
+    
+    subgraph "Storage & Models"
+        O[(Model Files)] --> J
+        P[(Queue Storage)] --> I
+        Q[(Config Files)] --> A
+    end
+    
+    subgraph "External Services"
+        R[OTA Update Server] --> D
+        S[Cloud Data Storage] --> I
+    end
+    
+    style Enhanced Components fill:#f9f,stroke:#333,stroke-width:2px
+    style Client Applications fill:#bbf,stroke:#333,stroke-width:2px
