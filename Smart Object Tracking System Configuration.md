@@ -108,7 +108,7 @@ training:
       mixup: 0.25  # Add mixup for small datasets
       mosaic: 1.0  # Full mosaic augmentation
       copy_paste: 0.1  # Add copy-paste for small datasets
-
+    
     # Configuration for large datasets
     large_dataset:
       lr: 0.005  # Lower learning rate for larger datasets

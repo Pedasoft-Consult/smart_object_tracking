@@ -83,23 +83,85 @@ class DeepSORTTracker:
         self.logger = logging.getLogger('DeepSORTTracker')
 
     def update(self, detections, frame):
+        """Update tracks with new detections"""
+        # Update existing tracks with motion model
         for track in self.tracks:
             track.predict()
+
+        # Handle case when no detections are present
         if detections is None or len(detections) == 0:
             return self.get_active_tracks()
-        high_score_detections = []
-        low_score_detections = []
-        for det in detections:
-            confidence = det.get('confidence', 0) if isinstance(det, dict) else det[4] if len(det) > 4 else 0
-            if confidence >= self.high_threshold:
-                high_score_detections.append(det)
-            elif confidence >= self.low_threshold:
-                low_score_detections.append(det)
 
-        self._match_tracks(high_score_detections)
-        self._match_tracks(low_score_detections)
-        self.tracks = [t for t in self.tracks if t.time_since_update <= self.max_age]
-        return self.get_active_tracks()
+        # Process detections to ensure consistent format
+        processed_detections = []
+        for det in detections:
+            try:
+                if isinstance(det, dict) and 'bbox' in det:
+                    # Already in correct format
+                    processed_detections.append(det)
+                elif isinstance(det, (list, tuple, np.ndarray)) and len(det) >= 4:
+                    # Convert array-like to dictionary format
+                    confidence = det[4] if len(det) > 4 else 0.0
+                    class_id = int(det[5]) if len(det) > 5 else 0
+                    processed_detections.append({
+                        'bbox': det[:4],
+                        'confidence': confidence,
+                        'class_id': class_id
+                    })
+                else:
+                    logging.getLogger('ByteTracker').warning(f"Skipping detection with unsupported format: {type(det)}")
+            except Exception as e:
+                logging.getLogger('ByteTracker').error(f"Error processing detection: {e}")
+
+        # If we have no valid detections after processing, return
+        if len(processed_detections) == 0:
+            return self.get_active_tracks()
+
+        # Now proceed with tracking using the standardized detections
+        detection_features = []  # We're not using features here
+
+        try:
+            # Create cost matrix with standardized detections
+            cost_matrix = create_cost_matrix(self.tracks, processed_detections, detection_features, self.iou_threshold,
+                                             0.5)
+
+            # Rest of the tracking logic with assignments
+            from scipy.optimize import linear_sum_assignment
+            track_indices_l, det_indices_l = linear_sum_assignment(cost_matrix)
+
+            # Process the assignments
+            matched_tracks = set()
+            matched_dets = set()
+            for track_idx, det_idx in zip(track_indices_l, det_indices_l):
+                if cost_matrix[track_idx, det_idx] > 0.75:  # Cost threshold
+                    continue
+
+                det = processed_detections[det_idx]
+                bbox = det['bbox']
+                confidence = det.get('confidence')
+
+                # Update the track
+                self.tracks[track_idx].update(bbox, confidence)
+                matched_tracks.add(track_idx)
+                matched_dets.add(det_idx)
+
+            # Create new tracks for unmatched detections
+            for i, det in enumerate(processed_detections):
+                if i not in matched_dets:
+                    self._initiate_track(det)
+
+            # Remove old tracks
+            self.tracks = [t for t in self.tracks if t.time_since_update <= self.max_age]
+
+            return self.get_active_tracks()
+
+        except Exception as e:
+            logger = logging.getLogger('ByteTracker')
+            logger.error(f"Error in tracking update: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            # Return existing tracks as fallback
+            return self.get_active_tracks()
 
     def _match_tracks(self, detections):
         if len(detections) == 0:

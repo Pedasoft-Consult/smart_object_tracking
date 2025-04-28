@@ -148,6 +148,8 @@ def create_cost_matrix(tracks, detections, detection_features, iou_threshold=0.3
     Returns:
         Cost matrix
     """
+    logger = logging.getLogger('ObjectTracking')
+
     num_tracks = len(tracks)
     num_detections = len(detections)
 
@@ -156,44 +158,69 @@ def create_cost_matrix(tracks, detections, detection_features, iou_threshold=0.3
 
     # Fill in cost matrix based on IoU and feature similarity
     for i, track in enumerate(tracks):
+        track_bbox = track.bbox
+
         for j, detection in enumerate(detections):
-            # Calculate IoU
-            track_bbox = track.bbox
-            det_bbox = detection[:4]
-            iou = calculate_iou(track_bbox, det_bbox)
-
-            # Skip if IoU is below threshold
-            if iou < iou_threshold:
-                continue
-
-            # Set cost based on IoU
-            iou_cost = 1.0 - iou
-
-            # If features are available, incorporate feature similarity
-            if detection_features and track.features:
-                # Use latest track features
-                track_features = track.features[-1]
-                detection_feature = detection_features[j]
-
-                # Calculate feature distance
-                feature_distance = calculate_feature_distance(track_features, detection_feature)
-
-                # Skip if feature distance is above threshold
-                if feature_distance > max_feature_distance:
+            try:
+                # Extract detection bounding box based on format
+                if isinstance(detection, dict) and 'bbox' in detection:
+                    det_bbox = detection['bbox']
+                elif isinstance(detection, (list, tuple, np.ndarray)):
+                    if len(detection) >= 4:
+                        det_bbox = [detection[0], detection[1], detection[2], detection[3]]
+                    else:
+                        logger.warning(f"Detection {j} has insufficient elements: {detection}")
+                        continue
+                else:
+                    logger.warning(f"Unsupported detection type for index {j}: {type(detection)}")
                     continue
 
-                # Combine IoU and feature costs
-                # Give more weight to appearance for longer tracks
-                if track.hits > 5:
-                    cost = 0.3 * iou_cost + 0.7 * feature_distance
-                else:
-                    cost = 0.7 * iou_cost + 0.3 * feature_distance
-            else:
-                # Use only IoU-based cost
-                cost = iou_cost
+                # Ensure bbox has 4 elements and is in the right format
+                if not isinstance(det_bbox, (list, tuple, np.ndarray)) or len(det_bbox) != 4:
+                    logger.warning(f"Invalid bbox format: {det_bbox}")
+                    continue
 
-            # Set final cost
-            cost_matrix[i, j] = cost
+                # Calculate IoU
+                iou = calculate_iou(track_bbox, det_bbox)
+
+                # Skip if IoU is below threshold
+                if iou < iou_threshold:
+                    continue
+
+                # Set cost based on IoU
+                iou_cost = 1.0 - iou
+
+                # If features are available, incorporate feature similarity
+                if detection_features and len(detection_features) > j and track.features:
+                    # Use latest track features
+                    track_features = track.features[-1]
+                    detection_feature = detection_features[j]
+
+                    # Calculate feature distance
+                    feature_distance = calculate_feature_distance(track_features, detection_feature)
+
+                    # Skip if feature distance is above threshold
+                    if feature_distance > max_feature_distance:
+                        continue
+
+                    # Combine IoU and feature costs
+                    # Give more weight to appearance for longer tracks
+                    if track.hits > 5:
+                        cost = 0.3 * iou_cost + 0.7 * feature_distance
+                    else:
+                        cost = 0.7 * iou_cost + 0.3 * feature_distance
+                else:
+                    # Use only IoU-based cost
+                    cost = iou_cost
+
+                # Set final cost
+                cost_matrix[i, j] = cost
+
+            except Exception as e:
+                logger.error(f"Error calculating cost for track {i} and detection {j}: {e}")
+                import traceback
+                logger.error(traceback.format_exc())
+                # Keep default high cost for this pair
 
     return cost_matrix
 

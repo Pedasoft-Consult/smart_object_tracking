@@ -48,6 +48,13 @@ stats = {
     "last_detection": None
 }
 
+# Color palette for consistent visualization
+COLOR_PALETTE = [
+    (255, 0, 0), (0, 255, 0), (0, 0, 255), (255, 255, 0),
+    (255, 0, 255), (0, 255, 255), (128, 128, 0), (0, 128, 128),
+    (200, 200, 50), (50, 200, 200), (200, 50, 200), (100, 255, 100)
+]
+
 
 def load_config():
     """Load configuration from settings file"""
@@ -100,24 +107,85 @@ def update_frame(frame, detections=None, tracks=None):
     # Make a copy to avoid modifying the original
     display_frame = frame.copy()
 
-    # Draw detections and tracks if provided
+    # Draw detections if provided
     if detections:
         stats["detections"] = len(detections)
         for det in detections:
-            x1, y1, x2, y2 = map(int, det['bbox'])
-            label = f"{det['class_name']} {det['confidence']:.2f}"
-            cv2.rectangle(display_frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-            cv2.putText(display_frame, label, (x1, y1 - 10),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+            if isinstance(det, dict) and 'bbox' in det:
+                x1, y1, x2, y2 = map(int, det['bbox'])
+                class_id = det.get('class_id', 0)
+                class_name = det.get('class_name', f"class_{class_id}")
+                confidence = det.get('confidence', 0.0)
 
+                color = COLOR_PALETTE[class_id % len(COLOR_PALETTE)]
+                label = f"{class_name} {confidence:.2f}"
+
+                cv2.rectangle(display_frame, (x1, y1), (x2, y2), color, 2)
+                cv2.putText(display_frame, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+
+    # Draw tracks if provided
     if tracks:
         stats["tracks"] = len(tracks)
         for track in tracks:
-            track_id = track.get('id', 0)
-            x1, y1, x2, y2 = map(int, track.get('bbox', [0, 0, 0, 0]))
-            cv2.rectangle(display_frame, (x1, y1), (x2, y2), (255, 0, 0), 2)
-            cv2.putText(display_frame, f"ID: {track_id}", (x1, y1 - 10),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
+            try:
+                # Handle different track object formats
+                if hasattr(track, 'bbox'):
+                    # Direct bbox attribute
+                    if callable(track.bbox):
+                        bbox = track.bbox()
+                    else:
+                        bbox = track.bbox
+                    x1, y1, x2, y2 = map(int, bbox)
+                    track_id = getattr(track, 'track_id', 0)
+                    class_id = getattr(track, 'class_id', 0)
+
+                elif hasattr(track, 'tlbr'):
+                    # Handle TLBR format
+                    x1, y1, x2, y2 = map(int, track.tlbr)
+                    track_id = getattr(track, 'track_id', getattr(track, 'id', 0))
+                    class_id = getattr(track, 'class_id', 0)
+
+                elif hasattr(track, 'tlwh'):
+                    # Handle TLWH format
+                    x, y, w, h = map(int, track.tlwh)
+                    x1, y1, x2, y2 = x, y, x + w, y + h
+                    track_id = getattr(track, 'track_id', getattr(track, 'id', 0))
+                    class_id = getattr(track, 'class_id', 0)
+
+                elif isinstance(track, dict):
+                    # Dictionary format
+                    bbox = track.get('bbox', [0, 0, 0, 0])
+                    x1, y1, x2, y2 = map(int, bbox)
+                    track_id = track.get('id', track.get('track_id', 0))
+                    class_id = track.get('class_id', 0)
+
+                else:
+                    # Skip this track if we can't determine the format
+                    continue
+
+                color = COLOR_PALETTE[class_id % len(COLOR_PALETTE)]
+
+                # Draw track bounding box and ID
+                cv2.rectangle(display_frame, (x1, y1), (x2, y2), color, 2)
+                cv2.putText(display_frame, f"ID: {track_id}", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+
+                # Draw trail if available
+                if hasattr(track, 'trail') and len(track.trail) > 1:
+                    for i in range(1, len(track.trail)):
+                        pt1 = (int(track.trail[i - 1][0]), int(track.trail[i - 1][1]))
+                        pt2 = (int(track.trail[i][0]), int(track.trail[i][1]))
+                        cv2.line(display_frame, pt1, pt2, color, 1)
+
+            except Exception as e:
+                app.logger.error(f"Error drawing track: {e}")
+                import traceback
+                app.logger.error(traceback.format_exc())
+
+    # Save actual detection and track objects
+    stats["detection_list"] = detections if isinstance(detections, list) else []
+    app.logger.info(f"[update_frame] Received {len(detections)} detections")
+
+    stats["track_list"] = tracks if isinstance(tracks, list) else []
 
     # Update timestamp
     stats["last_detection"] = time.time()
@@ -165,36 +233,18 @@ def generate_frames():
 
 # API Routes
 
-@app.route('/api/status')
+@app.route("/api/status", methods=["GET"])
 def get_status():
-    """Get current system status"""
-    global stats, config
-
-    # Calculate uptime
-    uptime = time.time() - stats["start_time"]
-
-    # Get offline queue stats if available
-    queue_stats = {}
-    if tracking_system and hasattr(tracking_system, 'offline_queue'):
-        queue_stats = tracking_system.offline_queue.stats()
-
-    # Build response
-    response = {
-        "status": "running" if stats["is_running"] else "stopped",
-        "mode": "online" if stats["is_online"] else "offline",
-        "uptime": uptime,
-        "detections": stats["detections"],
-        "tracks": stats["tracks"],
-        "fps": stats["fps"],
-        "last_detection_time": stats["last_detection"],
+    global config
+    system_config = config.get('system', {}) if config else {}
+    return jsonify({
+        "status": "running",
         "system_info": {
-            "name": config.get('system', {}).get('name', "Smart Object Tracking System"),
-            "version": config.get('system', {}).get('version', "1.0.0")
-        },
-        "queue": queue_stats
-    }
+            "name": system_config.get('name', "Smart Object Tracking System"),
+            "version": system_config.get('version', "1.0.0")
+        }
+    })
 
-    return jsonify(response)
 
 
 @app.route('/api/queue/stats')
@@ -305,6 +355,13 @@ def start_tracking():
         args.save_video = save_video
         args.output_dir = params.get('output_dir', "output")
         args.tracker = params.get('tracker', config.get('tracking', {}).get('tracker', 'deep_sort'))
+
+        # Add the missing conf_thres parameter
+        args.conf_thres = params.get('conf_thres', config.get('detection', {}).get('confidence', 0.15))
+
+        # Add other parameters that might be needed
+        args.model = params.get('model', config.get('models', {}).get('online_model', 'yolov5s.pt'))
+        args.config = params.get('config', 'configs/settings.yaml')
 
         # Start tracking in a separate thread
         def run_tracking():
@@ -662,76 +719,6 @@ def index():
     """
 
 
-# Modify detect_and_track.py to call our update_frame function
-def patch_detect_and_track():
-    """
-    Monkey-patch the detect_and_track module to capture frames and statistics
-    """
-    import detect_and_track
-
-    # Save the original run function
-    original_run = detect_and_track.run
-
-    # Define our patched run function
-    def patched_run(*args, **kwargs):
-        global stats
-
-        # Check network connectivity
-        from utils.connectivity import check_connectivity
-        stats["is_online"] = check_connectivity()
-
-        # Call the original function
-        return original_run(*args, **kwargs)
-
-    # Replace the original function
-    detect_and_track.run = patched_run
-
-    # Patch the code that processes frames
-    original_code = """
-                if display or save_video:
-                    for det in detections:
-                        x1, y1, x2, y2 = map(int, det['bbox'])
-                        label = f"{det['class_name']} {det['confidence']:.2f}"
-                        cv2.rectangle(display_frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                        cv2.putText(display_frame, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
-
-                    for track in tracks:
-                        track_id = track.get('id', 0)
-                        x1, y1, x2, y2 = map(int, track.get('bbox', [0, 0, 0, 0]))
-                        cv2.rectangle(display_frame, (x1, y1), (x2, y2), (255, 0, 0), 2)
-                        cv2.putText(display_frame, f"ID: {track_id}", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
-    """
-
-    # Import the function from this module to avoid circular imports
-    from api import update_frame
-
-    # Updated code to also call our update_frame function
-    updated_code = """
-                # Update API frame
-                from api import update_frame
-                update_frame(display_frame, detections, tracks)
-
-                if display or save_video:
-                    for det in detections:
-                        x1, y1, x2, y2 = map(int, det['bbox'])
-                        label = f"{det['class_name']} {det['confidence']:.2f}"
-                        cv2.rectangle(display_frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                        cv2.putText(display_frame, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
-
-                    for track in tracks:
-                        track_id = track.get('id', 0)
-                        x1, y1, x2, y2 = map(int, track.get('bbox', [0, 0, 0, 0]))
-                        cv2.rectangle(display_frame, (x1, y1), (x2, y2), (255, 0, 0), 2)
-                        cv2.putText(display_frame, f"ID: {track_id}", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
-    """
-
-    # This is pseudo-code since we can't actually patch the source code at runtime
-    # In a real implementation, we'd need to modify the file or use a more sophisticated
-    # approach to intercept the frames
-
-    app.logger.info("Patched detect_and_track module")
-
-
 if __name__ == "__main__":
     # Parse command-line arguments
     import argparse
@@ -740,14 +727,12 @@ if __name__ == "__main__":
     parser.add_argument("--host", default="0.0.0.0", help="Host to bind the server to")
     parser.add_argument("--port", type=int, default=5000, help="Port to bind the server to")
     parser.add_argument("--debug", action="store_true", help="Run in debug mode")
-
+    # In main_integration.py, in the argument parser section
+    parser.add_argument("--api", action="store_true", help="Start API server")
     args = parser.parse_args()
 
     # Initialize API
     initialize()
-
-    # Patch detect_and_track module (in a real implementation)
-    # patch_detect_and_track()
 
     # Start Flask server
     app.run(host=args.host, port=args.port, debug=args.debug)
